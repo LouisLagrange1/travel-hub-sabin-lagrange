@@ -1,27 +1,57 @@
 version: "3.8"
-services:
-  redis:
-    image: redis:latest
-    container_name: redis
-    ports:
-      - "6379:6379"
 
+services:
   mongodb:
-    image: mongo:latest
+    image: mongo
     container_name: mongodb
+    restart: always
     ports:
       - "27017:27017"
     volumes:
-      - mongodb_data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+
+  redis:
+    image: redis
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis-init/init.sh:/data/init.sh
+    command:
+      [
+        "sh",
+        "-c",
+        "redis-server --daemonize no & sleep 5 && sh /data/init.sh && tail -f /dev/null",
+      ]
 
   neo4j:
-    image: neo4j:latest
+    image: neo4j:5
     container_name: neo4j
+    restart: always
     ports:
       - "7474:7474"
       - "7687:7687"
     environment:
       - NEO4J_AUTH=neo4j/test1234
+    volumes:
+      - neo4j_data:/data
+      - ./neo4j-init:/import
+
+  neo4j-init:
+    image: neo4j:5
+    depends_on:
+      - neo4j
+    entrypoint: >
+      bash -c "
+        echo '🕐 Attente que Neo4j soit prêt...' &&
+        until cypher-shell -a neo4j:7687 -u neo4j -p test1234 'RETURN 1'; do sleep 1; done &&
+        echo '🚀 Insertion des données dans Neo4j' &&
+        cypher-shell -a neo4j:7687 -u neo4j -p test1234 < /import/init.cypher
+      "
+    volumes:
+      - ./neo4j-init:/import
+    restart: "no"
 
 volumes:
   mongodb_data:
+  neo4j_data:
