@@ -1,72 +1,98 @@
-import type { NextApiRequest, NextApiResponse } from "next";
+import { NextRequest, NextResponse } from "next/server";
 import Redis from "ioredis";
-import mongoose from "mongoose";
+import { connectMongo } from "@/lib/db";
 import neo4j from "neo4j-driver";
+import { ObjectId } from "mongodb";
 
-const redis = new Redis(process.env.REDIS_URL!);
+const redis = new Redis({
+  host: process.env.REDIS_HOST || "localhost",
+  port: parseInt(process.env.REDIS_PORT || "6379"),
+  maxRetriesPerRequest: 3,
+  retryStrategy: (times) => Math.min(times * 100, 3000)
+});
+
 const driver = neo4j.driver(
   process.env.NEO4J_URI!,
   neo4j.auth.basic(process.env.NEO4J_USER!, process.env.NEO4J_PASSWORD!)
 );
 
-const OfferSchema = new mongoose.Schema({
-  /* modèle identique à plus haut */
-});
-const Offer = mongoose.models.Offer || mongoose.model("Offer", OfferSchema);
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const { id } = params;
 
-async function connectMongo() {
-  if (mongoose.connection.readyState !== 1) {
-    await mongoose.connect(process.env.MONGO_URI!);
-  }
-}
+  console.log(`Requête GET pour l'offre ID: ${id}`);
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  const { id } = req.query;
-
-  if (!id) {
-    return res
-      .status(400)
-      .json({ error: "L'identifiant de l'offre est requis." });
+  if (!ObjectId.isValid(id)) {
+    return NextResponse.json(
+      { error: "ID d'offre invalide" },
+      { status: 400 }
+    );
   }
 
-  const cacheKey = `offers:${id}`;
+  const cacheKey = `offer:${id}`;
 
   try {
-    // Vérifie le cache Redis
-    const cachedOffer = await redis.get(cacheKey);
-    if (cachedOffer) {
-      return res.status(200).json(JSON.parse(cachedOffer));
+    // Tentative de récupération depuis le cache
+    let cachedOffer;
+    try {
+      cachedOffer = await redis.get(cacheKey);
+      if (cachedOffer) {
+        console.log("Offre trouvée dans le cache");
+        return NextResponse.json(JSON.parse(cachedOffer));
+      }
+    } catch (redisError) {
+      console.error('Erreur Redis:', redisError);
     }
 
-    // Si pas en cache, interroge MongoDB
-    await connectMongo();
-    const offer = await Offer.findById(id);
+    // Récupération depuis MongoDB
+    console.log("Recherche de l'offre dans MongoDB...");
+    const offer = await connectMongo.collection("offers").findOne({ 
+      _id: new ObjectId(id) 
+    });
 
     if (!offer) {
-      return res.status(404).json({ error: "Offre introuvable." });
+      return NextResponse.json(
+        { error: "Offre introuvable" },
+        { status: 404 }
+      );
     }
 
-    // Recommandations via Neo4j
+    // Formatage des données
+    const formattedOffer = {
+      ...offer,
+      _id: offer._id.toString(),
+      departDate: offer.departDate?.toISOString(),
+      returnDate: offer.returnDate?.toISOString(),
+      from: offer.from, // Ensure 'from' is included
+      relatedOffers: [] as string[] 
+    };
+
+    console.log("Recherche des villes associées dans Neo4j...");
     const session = driver.session();
-    const query = `
-      MATCH (c1:City {code:$from})-[:NEAR]->(c2:City)
-      RETURN c2.code AS city LIMIT 3
-    `;
-    const relatedCities = await session.run(query, { from: offer.from });
+    try {
+      const result = await session.run(
+        `MATCH (c:City {code: $from})-[:NEAR]->(related:City)
+         RETURN related.code as code LIMIT 5`,
+        { from: formattedOffer.from }
+      );
+      
+      formattedOffer.relatedOffers = result.records.map(record => record.get('code'));
+    } finally {
+      await session.close();
+    }
 
-    offer.relatedOffers = relatedCities.records.map((record) =>
-      record.get("city")
-    );
+    try {
+      await redis.set(cacheKey, JSON.stringify(formattedOffer), 'EX', 300); // 5 minutes
+    } catch (redisError) {
+      console.error('Erreur de mise en cache:', redisError);
+    }
 
-    // Stocke dans Redis (TTL 300s)
-    await redis.set(cacheKey, JSON.stringify(offer), "EX", 300);
+    return NextResponse.json(formattedOffer);
 
-    res.status(200).json(offer);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Erreur interne du serveur." });
+    console.error('Erreur serveur:', error);
+    return NextResponse.json(
+      { error: "Erreur interne du serveur" },
+      { status: 500 }
+    );
   }
 }
