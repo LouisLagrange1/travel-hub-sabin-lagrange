@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plane } from "lucide-react";
+import { Plane, Plus } from "lucide-react";
 
 export function Header() {
   return (
@@ -22,6 +22,14 @@ export function Header() {
             <li>
               <Link href="/offers" className="hover:underline">
                 Offres
+              </Link>
+            </li>
+            <li>
+              <Link
+                href="/offers/new"
+                className="flex items-center hover:underline"
+              >
+                <Plus className="h-4 w-4 mr-1" /> Nouvelle offre
               </Link>
             </li>
           </ul>
