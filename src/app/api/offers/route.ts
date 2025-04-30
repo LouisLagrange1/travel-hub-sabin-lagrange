@@ -75,74 +75,91 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { title, description, price, city, dateFrom, dateTo } = await req.json();
+    const {
+      from,
+      to,
+      departDate,
+      returnDate,
+      provider,
+      price,
+      currency,
+      legs,
+      hotel,
+      activity,
+    } = await req.json();
 
-    console.log(`Requête POST: Création de l'offre ${title}`);
-
-    if (!title || !description || !price || !city || !dateFrom || !dateTo) {
-      return NextResponse.json({ error: "Tous les champs sont requis." }, { status: 400 });
+    if (!from || !to || !departDate || !returnDate || !provider || !price || !currency) {
+      return NextResponse.json(
+        { error: "Tous les champs sont requis." },
+        { status: 400 }
+      );
     }
 
     const offer = {
-      title,
-      description,
+      from,
+      to,
+      departDate: new Date(departDate),
+      returnDate: new Date(returnDate),
+      provider,
       price,
-      city,
-      dateFrom,
-      dateTo,
+      currency,
+      legs,
+      hotel,
+      activity,
       createdAt: new Date(),
     };
 
-    console.log("Insertion de l'offre dans MongoDB...");
-    const result = await connectMongo.collection("offers").insertOne(offer);
+    const db = await connectMongo;
+    const result = await db.collection("offers").insertOne(offer);
     const offerId = result.insertedId;
 
-    console.log("Offre insérée dans MongoDB avec succès, ID:", offerId);
-
+    // Neo4j
     const session = driver.session();
     try {
-      console.log("Création de la relation dans Neo4j...");
-      const query = `
-        MATCH (c:City {code:$city})
-        CREATE (o:Offer {id:$offerId, title:$title, description:$description, price:$price, dateFrom:$dateFrom, dateTo:$dateTo})
-        CREATE (o)-[:IS_IN]->(c)
-      `;
-      await session.run(query, {
-        offerId,
-        title,
-        description,
-        price,
-        dateFrom,
-        dateTo,
-        city,
-      });
-      console.log("Relation Neo4j créée avec succès.");
-    } catch (error) {
-      console.error("Erreur Neo4j lors de l'insertion de l'offre:", error);
+      await session.run(
+        `MATCH (from:City {code:$from}), (to:City {code:$to})
+         CREATE (o:Offer {
+           id:$offerId, provider:$provider, price:$price, currency:$currency,
+           departDate:$departDate, returnDate:$returnDate
+         })
+         CREATE (o)-[:FLIES_FROM]->(from)
+         CREATE (o)-[:FLIES_TO]->(to)`,
+        {
+          offerId: offerId.toString(),
+          from,
+          to,
+          provider,
+          price,
+          currency,
+          departDate,
+          returnDate,
+        }
+      );
+    } catch (e) {
+      console.error("Erreur Neo4j:", e);
     } finally {
       await session.close();
     }
 
-    // Publier l'événement de la nouvelle offre dans Redis (Pub/Sub)
+    // Redis pub/sub
     try {
-      const message = {
-        offerId: offerId.toHexString(),
-        from: dateFrom,
-        to: dateTo,
-      };
-
-      console.log("Publication de l'événement dans Redis...");
-      await redis.publish("offers:new", JSON.stringify(message));
-      console.log("Événement publié dans Redis.");
-    } catch (error) {
-      console.error("Erreur lors de la publication Redis:", error);
+      await redis.publish(
+        "offers:new",
+        JSON.stringify({
+          offerId: offerId.toHexString(),
+          from,
+          to,
+          departDate,
+          returnDate,
+        })
+      );
+    } catch (e) {
+      console.error("Erreur Redis:", e);
     }
 
-    // Retourner la nouvelle offre avec son ID
     return NextResponse.json({ id: offerId, ...offer }, { status: 201 });
-
   } catch (error) {
-    console.error("Erreur serveur lors de la création de l'offre:", error);
+    console.error("Erreur serveur:", error);
     return NextResponse.json({ error: "Erreur interne du serveur" }, { status: 500 });
   }
 }

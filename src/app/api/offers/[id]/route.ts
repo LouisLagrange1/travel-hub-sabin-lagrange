@@ -3,12 +3,13 @@ import Redis from "ioredis";
 import { connectMongo } from "@/lib/db";
 import neo4j from "neo4j-driver";
 import { ObjectId } from "mongodb";
+import { Params } from "next/dist/server/request/params";
 
 const redis = new Redis({
   host: process.env.REDIS_HOST || "localhost",
   port: parseInt(process.env.REDIS_PORT || "6379"),
   maxRetriesPerRequest: 3,
-  retryStrategy: (times) => Math.min(times * 100, 3000)
+  retryStrategy: (times) => Math.min(times * 100, 3000),
 });
 
 const driver = neo4j.driver(
@@ -16,12 +17,28 @@ const driver = neo4j.driver(
   neo4j.auth.basic(process.env.NEO4J_USER!, process.env.NEO4J_PASSWORD!)
 );
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<Params> }
+) {
+  const resolvedParams = await params;
+  console.log("Paramètres résolus:", resolvedParams);
 
+  if (!resolvedParams.id || resolvedParams.id.length !== 24) {
+    return NextResponse.json(
+      { error: "Missing id parameter" },
+      { status: 400 }
+    );
+  }
+
+  const id = resolvedParams.id;
+  
+  // Récupération de l'ID
   console.log(`Requête GET pour l'offre ID: ${id}`);
 
-  if (!ObjectId.isValid(id)) {
+  // Vérification que l'ID est valide
+  const idString = Array.isArray(id) ? id[0] : id;
+  if (!idString || idString.length !== 24 || !ObjectId.isValid(idString)) {
     return NextResponse.json(
       { error: "ID d'offre invalide" },
       { status: 400 }
@@ -31,7 +48,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const cacheKey = `offer:${id}`;
 
   try {
-    // Tentative de récupération depuis le cache
+    // Tentative de récupération depuis le cache Redis
     let cachedOffer;
     try {
       cachedOffer = await redis.get(cacheKey);
@@ -43,26 +60,27 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       console.error('Erreur Redis:', redisError);
     }
 
-    // Récupération depuis MongoDB
+    // Recherche de l'offre dans MongoDB
     console.log("Recherche de l'offre dans MongoDB...");
-    const offer = await connectMongo.collection("offers").findOne({ 
-      _id: new ObjectId(id) 
+    const offer = await connectMongo.collection("offers").findOne({
+      _id: new ObjectId(Array.isArray(id) ? id[0] : id)  // Transformation de l'ID en ObjectId
     });
 
     if (!offer) {
+      console.log(`Aucune offre trouvée avec l'ID: ${id}`);
       return NextResponse.json(
         { error: "Offre introuvable" },
         { status: 404 }
       );
     }
 
-    // Formatage des données
+    // Formatage des données avant de les renvoyer
     const formattedOffer = {
       ...offer,
       _id: offer._id.toString(),
       departDate: offer.departDate?.toISOString(),
       returnDate: offer.returnDate?.toISOString(),
-      from: offer.from, // Ensure 'from' is included
+      from: offer.from, 
       relatedOffers: [] as string[] 
     };
 
@@ -74,14 +92,16 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
          RETURN related.code as code LIMIT 5`,
         { from: formattedOffer.from }
       );
-      
+
       formattedOffer.relatedOffers = result.records.map(record => record.get('code'));
     } finally {
       await session.close();
     }
 
+    // Mise en cache de l'offre pendant 5 minutes
     try {
-      await redis.set(cacheKey, JSON.stringify(formattedOffer), 'EX', 300); // 5 minutes
+      await redis.set(cacheKey, JSON.stringify(formattedOffer), 'EX', 300);
+      console.log("Offre mise en cache avec succès");
     } catch (redisError) {
       console.error('Erreur de mise en cache:', redisError);
     }
