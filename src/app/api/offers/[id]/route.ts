@@ -32,23 +32,17 @@ export async function GET(
   }
 
   const id = resolvedParams.id;
-  
-  // Récupération de l'ID
+
   console.log(`Requête GET pour l'offre ID: ${id}`);
 
-  // Vérification que l'ID est valide
   const idString = Array.isArray(id) ? id[0] : id;
   if (!idString || idString.length !== 24 || !ObjectId.isValid(idString)) {
-    return NextResponse.json(
-      { error: "ID d'offre invalide" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "ID d'offre invalide" }, { status: 400 });
   }
 
   const cacheKey = `offer:${id}`;
 
   try {
-    // Tentative de récupération depuis le cache Redis
     let cachedOffer;
     try {
       cachedOffer = await redis.get(cacheKey);
@@ -57,31 +51,26 @@ export async function GET(
         return NextResponse.json(JSON.parse(cachedOffer));
       }
     } catch (redisError) {
-      console.error('Erreur Redis:', redisError);
+      console.error("Erreur Redis:", redisError);
     }
 
-    // Recherche de l'offre dans MongoDB
     console.log("Recherche de l'offre dans MongoDB...");
     const offer = await connectMongo.collection("offers").findOne({
-      _id: new ObjectId(Array.isArray(id) ? id[0] : id)  // Transformation de l'ID en ObjectId
+      _id: new ObjectId(Array.isArray(id) ? id[0] : id), // Transformation de l'ID en ObjectId
     });
 
     if (!offer) {
       console.log(`Aucune offre trouvée avec l'ID: ${id}`);
-      return NextResponse.json(
-        { error: "Offre introuvable" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Offre introuvable" }, { status: 404 });
     }
 
-    // Formatage des données avant de les renvoyer
     const formattedOffer = {
       ...offer,
       _id: offer._id.toString(),
       departDate: offer.departDate?.toISOString(),
       returnDate: offer.returnDate?.toISOString(),
-      from: offer.from, 
-      relatedOffers: [] as string[] 
+      from: offer.from,
+      relatedOffers: [] as string[],
     };
 
     console.log("Recherche des villes associées dans Neo4j...");
@@ -93,23 +82,23 @@ export async function GET(
         { from: formattedOffer.from }
       );
 
-      formattedOffer.relatedOffers = result.records.map(record => record.get('code'));
+      formattedOffer.relatedOffers = result.records.map((record) =>
+        record.get("code")
+      );
     } finally {
       await session.close();
     }
 
-    // Mise en cache de l'offre pendant 5 minutes
     try {
-      await redis.set(cacheKey, JSON.stringify(formattedOffer), 'EX', 300);
+      await redis.set(cacheKey, JSON.stringify(formattedOffer), "EX", 300);
       console.log("Offre mise en cache avec succès");
     } catch (redisError) {
-      console.error('Erreur de mise en cache:', redisError);
+      console.error("Erreur de mise en cache:", redisError);
     }
 
     return NextResponse.json(formattedOffer);
-
   } catch (error) {
-    console.error('Erreur serveur:', error);
+    console.error("Erreur serveur:", error);
     return NextResponse.json(
       { error: "Erreur interne du serveur" },
       { status: 500 }

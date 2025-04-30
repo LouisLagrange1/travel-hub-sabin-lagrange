@@ -1,5 +1,3 @@
-// src/app/api/auth/login/route.ts
-
 import { NextRequest, NextResponse } from "next/server";
 import Redis from "ioredis";
 import { v4 as uuidv4 } from "uuid";
@@ -11,7 +9,10 @@ export async function POST(req: NextRequest) {
   const { userId } = body;
 
   if (!userId) {
-    return NextResponse.json({ error: "Le champ 'userId' est requis." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Le champ 'userId' est requis." },
+      { status: 400 }
+    );
   }
 
   const sessionId = uuidv4();
