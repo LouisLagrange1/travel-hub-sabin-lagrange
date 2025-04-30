@@ -1,36 +1,184 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+````markdown
+# TravelHub
 
-## Getting Started
+TravelHub est une application web de réservation de voyages permettant aux utilisateurs de rechercher et de réserver des vols, des hôtels et des activités. Cette plateforme utilise une architecture moderne et distribuée pour offrir une expérience utilisateur fluide et performante.
 
-First, run the development server:
+## ✨ Fonctionnalités
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Recherche d'offres de voyage** : Recherchez des vols par ville de départ et d'arrivée
+- **Détails des offres** : Consultez les informations détaillées sur les vols, hôtels et activités
+- **Recommandations** : Obtenez des suggestions de destinations similaires
+- **Création d'offres** : Ajoutez de nouvelles offres de voyage
+- **Interface responsive** : Expérience utilisateur optimisée sur tous les appareils
+
+## 🏗️ Architecture technique
+
+TravelHub est construit avec une architecture moderne utilisant plusieurs technologies:
+
+### Frontend
+
+- **Next.js** : Framework React pour le rendu côté serveur et le routage
+- **Tailwind CSS** : Framework CSS utilitaire pour le design
+- **shadcn/ui** : Composants UI réutilisables
+
+### Backend
+
+- **Next.js API Routes** : API RESTful pour la communication client-serveur
+- **MongoDB** : Base de données principale pour stocker les offres de voyage
+- **Redis** : Cache et système de publication/abonnement pour les performances
+- **Neo4j** : Base de données graphe pour les recommandations et relations entre destinations
+
+### Infrastructure
+
+- **Docker** : Conteneurisation des services (MongoDB, Redis, Neo4j)
+
+## 🚀 Installation
+
+### Prérequis
+
+- Node.js (v18 ou supérieur)
+- Docker et Docker Compose
+- Git
+
+### Étapes d'installation
+
+1. Clonez le dépôt:
+   ```bash
+   git clone https://github.com/votre-username/travel-hub.git
+   cd travel-hub
+   ```
+````
+
+2. Installez les dépendances:
+
+```shellscript
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+3. Lancez les services avec Docker Compose:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```shellscript
+docker-compose up -d
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## ⚙️ Configuration
 
-## Learn More
+1. Créez un fichier `.env.local` à la racine du projet avec les variables suivantes:
 
-To learn more about Next.js, take a look at the following resources:
+```plaintext
+# MongoDB
+MONGO_URI=mongodb://root:root@localhost:27017/travel?authSource=admin
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_URL=redis://localhost:6379
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# Neo4j
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=test1234
+```
 
-## Deploy on Vercel
+2. Les scripts d'initialisation pour les bases de données se trouvent dans:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. `mongo-init/` pour MongoDB
+1. `redis-init/` pour Redis
+1. `neo4j-init/` pour Neo4j
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🖥️ Utilisation
+
+1. Démarrez le serveur de développement:
+
+```shellscript
+npm run dev
+```
+
+2. Accédez à l'application dans votre navigateur:
+
+```plaintext
+http://localhost:3000
+```
+
+## 📡 API
+
+TravelHub expose plusieurs endpoints API:
+
+### Offres de voyage
+
+- `GET /api/offers?from={code}&to={code}` - Récupère les offres de voyage entre deux villes
+- `GET /api/offers/{id}` - Récupère les détails d'une offre spécifique
+- `POST /api/offers` - Crée une nouvelle offre de voyage
+
+### Recommandations
+
+- `GET /api/reco?city={code}` - Récupère des recommandations de destinations similaires
+
+### Authentification
+
+- `POST /api/auth/login` - Authentifie un utilisateur et crée une session
+
+## 📊 Modèles de données
+
+### Offre (Offer)
+
+```typescript
+interface Offer {
+  _id: string;
+  from: string;
+  to: string;
+  departDate: string;
+  returnDate: string;
+  provider: string;
+  price: number;
+  currency: string;
+  legs?: Array<{
+    flightNum: string;
+    dep: string;
+    arr: string;
+    duration: string;
+  }>;
+  hotel?: {
+    name: string;
+    nights: number;
+    price: number;
+  };
+  activity?: {
+    title: string;
+    price: number;
+  };
+  relatedOffers?: string[];
+  createdAt?: string;
+}
+```
+
+## 🛠️ Développement
+
+### Structure du projet
+
+```plaintext
+travel-hub/
+├── docker-compose.yml      # Configuration Docker
+├── mongo-init/             # Scripts d'initialisation MongoDB
+├── neo4j-init/             # Scripts d'initialisation Neo4j
+├── redis-init/             # Scripts d'initialisation Redis
+├── src/
+│   ├── app/                # Pages et routes Next.js
+│   │   ├── api/            # Routes API
+│   │   ├── offers/         # Pages des offres
+│   │   └── page.tsx        # Page d'accueil
+│   ├── components/         # Composants React
+│   │   ├── ui/             # Composants UI réutilisables
+│   │   └── ...
+│   ├── lib/                # Utilitaires et types
+│   │   ├── db.ts           # Connexion à la base de données
+│   │   ├── types.ts        # Types TypeScript
+│   │   └── utils.ts        # Fonctions utilitaires
+│   └── scripts/            # Scripts utilitaires
+```
+
+### Commandes utiles
+
+- `npm run dev` - Lance le serveur de développement
+- `npm run build` - Construit l'application pour la production
+- `npm run start` - Démarre l'application en mode production
